@@ -1,0 +1,45 @@
+{
+  "name": "presen-webapp-proto",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "nuxt build",
+    "dev": "nuxt dev",
+    "generate": "nuxt generate",
+    "preview": "nuxt preview",
+    "postinstall": "nuxt prepare",
+    "typecheck": "nuxt typecheck",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "devDependencies": {
+    "@nuxtjs/tailwindcss": "^6.14.0",
+    "@types/node": "^25.6.0",
+    "@vitest/coverage-v8": "^4.1.5",
+    "@vue/test-utils": "^2.4.10",
+    "autoprefixer": "^10.5.0",
+    "class-variance-authority": "^0.7.1",
+    "clsx": "^2.1.1",
+    "happy-dom": "^20.9.0",
+    "lucide-vue-next": "^1.0.0",
+    "nuxt": "^4.4.4",
+    "postcss": "^8.5.13",
+    "reka-ui": "^2.9.6",
+    "shadcn-nuxt": "^2.6.2",
+    "tailwind-merge": "^3.5.0",
+    "tailwindcss": "^3.4.19",
+    "tailwindcss-animate": "^1.0.7",
+    "typescript": "^6.0.3",
+    "vitest": "^4.1.5",
+    "vue": "^3.5.33",
+    "vue-tsc": "^3.2.8"
+  },
+  "dependencies": {
+    "@babylonjs/core": "^9.5.0",
+    "@babylonjs/loaders": "^9.5.0",
+    "@babylonjs/materials": "^9.5.0",
+    "@pinia/nuxt": "^0.11.3",
+    "pinia": "^3.0.4"
+  }
+}
