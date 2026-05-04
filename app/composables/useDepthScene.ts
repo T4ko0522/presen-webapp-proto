@@ -363,7 +363,8 @@ export function createDepthScene(canvas: HTMLCanvasElement, cb: DepthSceneCallba
         })
         const size = max.subtract(min)
         const maxDim = Math.max(size.x, size.y, size.z) || 1
-        const targetMax = Math.max(widthU, heightU) * 0.95
+        // ModelPreview3D と同じ MIN-fit (短辺基準)
+        const targetMax = Math.min(widthU, heightU) * 0.95
         const scale = targetMax / maxDim
 
         // 内側: モデル中心を local 原点に
@@ -393,6 +394,65 @@ export function createDepthScene(canvas: HTMLCanvasElement, cb: DepthSceneCallba
     record.modelInner.rotation.x = (r.x * Math.PI) / 180
     record.modelInner.rotation.y = (r.y * Math.PI) / 180
     record.modelInner.rotation.z = (r.z * Math.PI) / 180
+  }
+
+  /**
+   * model 要素のサイズ変更を反映する。
+   * src 変更を伴わない width/height 変更時に使用 (.glb 再ロードなしで placeholder と
+   * 内側 wrapper のスケールを更新)。
+   */
+  function rebuildModelSize(record: MeshRecord, el: Extract<SlideElement, { type: 'model' }>) {
+    const widthU = Math.max(0.5, el.width / PX_PER_UNIT)
+    const heightU = Math.max(0.5, el.height / PX_PER_UNIT)
+    // placeholder 自体を新しいサイズの Box に作り直す (BoxBuilder は scaling だけでは
+    // ヒット判定も含めてキレイに変わらないため、リビルドが安全)
+    const oldPlaceholder = record.pickRoot
+    const newPlaceholder = MeshBuilder.CreateBox('model_ph_' + el.id, {
+      width: widthU,
+      height: heightU,
+      depth: Math.min(widthU, heightU) * 0.4,
+    }, scene)
+    newPlaceholder.material = oldPlaceholder.material
+    newPlaceholder.position.copyFrom(oldPlaceholder.position)
+    newPlaceholder.rotation.copyFrom(oldPlaceholder.rotation)
+    newPlaceholder.metadata = oldPlaceholder.metadata
+    shadowGen.addShadowCaster(newPlaceholder)
+
+    // 既にロード済みのモデルがあれば付け替え
+    const wrapperChild = oldPlaceholder.getChildren().find(n => n.name?.startsWith('model_wrap_')) as TransformNode | undefined
+    if (wrapperChild) {
+      // wrapper の親を新 placeholder に。スケールも再計算
+      const innerNode = wrapperChild.getChildren().find(n => n.name?.startsWith('model_inner_')) as TransformNode | undefined
+      // モデル全体のバウンディングを再取得して targetMax に合わせ直す
+      let min = new Vector3(Number.POSITIVE_INFINITY, Number.POSITIVE_INFINITY, Number.POSITIVE_INFINITY)
+      let max = new Vector3(Number.NEGATIVE_INFINITY, Number.NEGATIVE_INFINITY, Number.NEGATIVE_INFINITY)
+      const meshes: Mesh[] = []
+      const collect = (n: TransformNode) => {
+        if (n instanceof Mesh) meshes.push(n)
+        n.getChildren().forEach(c => collect(c as TransformNode))
+      }
+      if (innerNode) collect(innerNode)
+      // 一旦 scale を 1 にしてバウンディング取得
+      const prevScale = wrapperChild.scaling.x
+      wrapperChild.scaling.setAll(1)
+      meshes.forEach(m => m.computeWorldMatrix(true))
+      meshes.forEach(m => {
+        const bb = m.getBoundingInfo().boundingBox
+        min = Vector3.Minimize(min, bb.minimumWorld)
+        max = Vector3.Maximize(max, bb.maximumWorld)
+      })
+      const size = max.subtract(min)
+      const maxDim = Math.max(size.x, size.y, size.z) || 1
+      const targetMax = Math.min(widthU, heightU) * 0.95
+      const scale = targetMax / maxDim
+      wrapperChild.scaling.setAll(scale)
+      wrapperChild.parent = newPlaceholder
+      void prevScale
+    }
+
+    // 旧 placeholder 破棄
+    oldPlaceholder.dispose(false, false)  // material は付け替えたので残す
+    record.pickRoot = newPlaceholder
   }
 
   // ---------- mesh 管理 ----------
@@ -454,17 +514,29 @@ export function createDepthScene(canvas: HTMLCanvasElement, cb: DepthSceneCallba
         return
       }
 
-      if (existing.materialKey !== newKey && el.type !== 'model') {
-        disposeRecord(existing)
-        const record = createRecord(el, orderIndex)
-        meshMap.set(el.id, record)
-        return
+      // material key (見た目/サイズ) が変わったら作り直し
+      if (existing.materialKey !== newKey) {
+        // model 要素は src 変更時のみ完全再生成。それ以外 (size 変更など) は in-place 更新
+        const oldSrc = existing.materialKey.split('|')[1]
+        const newSrc = newKey.split('|')[1]
+        if (el.type !== 'model' || oldSrc !== newSrc) {
+          disposeRecord(existing)
+          const record = createRecord(el, orderIndex)
+          meshMap.set(el.id, record)
+          return
+        }
+        // model 要素 + src 同じ + サイズだけ変わった: placeholder と内側スケールを更新
+        rebuildModelSize(existing, el as Extract<SlideElement, { type: 'model' }>)
+        existing.materialKey = newKey
       }
 
       const world = toWorld(el, orderIndex * 0.003)
       existing.baseX = world.x
       existing.baseY = world.y
       existing.pickRoot.position.set(world.x, world.y, world.z)
+
+      // 平面内回転 (CSS rotate と同等) を world Z 軸回転として反映
+      existing.pickRoot.rotation.z = (el.rotation * Math.PI) / 180
 
       // モデル要素は modelRotation の変更も反映
       if (el.type === 'model') {
