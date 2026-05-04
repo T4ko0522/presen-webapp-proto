@@ -180,6 +180,8 @@ function onTextBlur() {
             <ModelPreview3D
               :src="element.src"
               :rotation="element.modelRotation ?? { x: 0, y: 0, z: 0 }"
+              :width="element.width"
+              :height="element.height"
             />
           </ClientOnly>
           <div class="pointer-events-none absolute left-1 top-1 rounded bg-white/85 px-1.5 py-0.5 text-[10px] font-medium text-sky-700 shadow-sm">

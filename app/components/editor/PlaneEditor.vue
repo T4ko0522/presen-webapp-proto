@@ -42,10 +42,15 @@ const slideStyle = computed(() => ({
 }))
 
 // Z 値が大きい (= 手前) ほど後に描画して上のレイヤーに置く
+// ただし 3Dモデル要素は z 値に関係なく常に最前面 (編集中に隠されないため)
 // 同じ Z のときは元の配列順を保つ (ES2019+ の Array.sort は stable)
 const elements = computed<SlideElement[]>(() => {
   const arr = store.currentSlide?.elements ?? []
-  return [...arr].sort((a, b) => a.z - b.z)
+  return [...arr].sort((a, b) => {
+    if (a.type === 'model' && b.type !== 'model') return 1
+    if (a.type !== 'model' && b.type === 'model') return -1
+    return a.z - b.z
+  })
 })
 
 function clearSelection() {

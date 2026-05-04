@@ -31,10 +31,19 @@ const props = withDefaults(defineProps<{
   rotation?: { x: number, y: number, z: number }
   /** カメラの見る向きプリセット (front/back/left/right/top/bottom)。未指定はデフォルト */
   orientation?: 'front' | 'back' | 'left' | 'right' | 'top' | 'bottom'
+  /** 要素のピクセル幅 (3D編集側と同じ fit ロジックでサイズ感を一致させるために必要) */
+  width?: number
+  /** 要素のピクセル高さ */
+  height?: number
 }>(), {
   rotation: () => ({ x: 0, y: 0, z: 0 }),
   orientation: 'front',
+  width: 360,
+  height: 240,
 })
+
+// useDepthScene と同じ単位系
+const PX_PER_UNIT = 100
 
 const canvasRef = ref<HTMLCanvasElement | null>(null)
 let engine: Engine | null = null
@@ -52,10 +61,12 @@ onMounted(() => {
   scene.clearColor = new Color4(0, 0, 0, 0)  // 透過背景
 
   const ang = orientationToAlphaBeta(props.orientation)
-  const camera = new ArcRotateCamera('cam', ang.alpha, ang.beta, 3, Vector3.Zero(), scene)
-  camera.minZ = 0.05
-  camera.lowerRadiusLimit = 1.5
-  camera.upperRadiusLimit = 8
+  // useDepthScene と同じ世界スケールで見えるよう、要素サイズに合わせてカメラ距離を計算
+  const radius = computeCameraRadius()
+  const camera = new ArcRotateCamera('cam', ang.alpha, ang.beta, radius, Vector3.Zero(), scene)
+  camera.minZ = 0.01
+  camera.lowerRadiusLimit = radius * 0.4
+  camera.upperRadiusLimit = radius * 4
 
   new HemisphericLight('hemi', new Vector3(0, 1, 0.2), scene).intensity = 0.65
 
@@ -72,12 +83,53 @@ watch(() => props.src, () => loadModel())
 
 watch(() => [props.rotation.x, props.rotation.y, props.rotation.z], () => applyRotation(), { deep: true })
 
+// 要素サイズ変更時、カメラ距離と fit スケールを再計算
+watch(() => [props.width, props.height], () => {
+  if (!scene) return
+  const cam = scene.activeCamera as ArcRotateCamera | null
+  if (cam && 'radius' in cam) {
+    const r = computeCameraRadius()
+    cam.radius = r
+    cam.lowerRadiusLimit = r * 0.4
+    cam.upperRadiusLimit = r * 4
+  }
+  applyFitScale()
+})
+
+function applyFitScale() {
+  if (!positionWrapper) return
+  // 既存のバウンディング情報からスケールだけ再計算
+  const widthU = Math.max(0.5, props.width / PX_PER_UNIT)
+  const heightU = Math.max(0.5, props.height / PX_PER_UNIT)
+  const targetMax = Math.min(widthU, heightU) * 0.95
+  // バウンディングは計算済みではないが、wrapper.scaling だけ再フィットすると
+  // 元のモデル長辺は (targetMax_old / scale_old) なので不変
+  // → 比率で更新する: new_scale = old_scale * (targetMax_new / targetMax_old)
+  // 単純化: (現在のスケール) と (現在のサイズに対する targetMax) を保持して比較
+  const currentTargetMax = (positionWrapper.metadata as { targetMax?: number } | null)?.targetMax ?? targetMax
+  const currentScale = positionWrapper.scaling.x
+  const newScale = currentScale * (targetMax / currentTargetMax)
+  positionWrapper.scaling.setAll(newScale)
+  positionWrapper.metadata = { targetMax }
+}
+
 function applyRotation() {
   if (!rotationContainer) return
   const r = props.rotation
   rotationContainer.rotation.x = (r.x * Math.PI) / 180
   rotationContainer.rotation.y = (r.y * Math.PI) / 180
   rotationContainer.rotation.z = (r.z * Math.PI) / 180
+}
+
+/**
+ * 要素サイズ (px) と Babylon の FOV に基づき、カメラ距離を算出する。
+ * 視野の縦方向が要素の高さ (heightU) ぴったりになる距離にすると、
+ * 「世界 1 ユニット = canvas 上の 1 同等 px ピクセル数」が両エディタで一致する。
+ */
+function computeCameraRadius(): number {
+  const heightU = Math.max(0.5, props.height / PX_PER_UNIT)
+  const fov = 0.8  // Babylon ArcRotateCamera のデフォルト FOV (rad, vertical)
+  return heightU / (2 * Math.tan(fov / 2))
 }
 
 function orientationToAlphaBeta(o: NonNullable<typeof props.orientation>) {
@@ -133,7 +185,11 @@ function loadModel() {
       })
       const size = max.subtract(min)
       const maxDim = Math.max(size.x, size.y, size.z) || 1
-      const targetMax = 1.4
+      // 短辺ベースの MIN-fit: モデルの長辺が要素の短辺に収まるように
+      // (MAX-fit だとアスペクト比が異なる場合に短辺方向で見切れるため)
+      const widthU = Math.max(0.5, props.width / PX_PER_UNIT)
+      const heightU = Math.max(0.5, props.height / PX_PER_UNIT)
+      const targetMax = Math.min(widthU, heightU) * 0.95
       const scale = targetMax / maxDim
 
       // 内側: モデルの中心が inner の local 原点に来るよう meshes をオフセット
@@ -142,6 +198,8 @@ function loadModel() {
 
       // 外側: スケールのみ。位置は (0,0,0) (シーン中央)
       wrapper.scaling.setAll(scale)
+      // 後で size 変更時にスケールを再計算するため、現在の targetMax を保存
+      wrapper.metadata = { targetMax }
 
       positionWrapper = wrapper
       rotationContainer = inner
