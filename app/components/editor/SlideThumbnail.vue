@@ -9,9 +9,13 @@ const props = defineProps<{
 
 const ratio = computed(() => SLIDE_HEIGHT / SLIDE_WIDTH)
 
-// PlaneEditor と同様、Z 値ソートで重なり順を反映
+// PlaneEditor と同様: Z 値ソート + model は常に最前面
 const sortedElements = computed<SlideElement[]>(() => {
-  return [...props.slide.elements].sort((a, b) => a.z - b.z)
+  return [...props.slide.elements].sort((a, b) => {
+    if (a.type === 'model' && b.type !== 'model') return 1
+    if (a.type !== 'model' && b.type === 'model') return -1
+    return a.z - b.z
+  })
 })
 
 function elStyle(el: SlideElement) {
