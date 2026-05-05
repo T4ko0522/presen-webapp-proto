@@ -93,9 +93,7 @@ export function createDepthScene(canvas: HTMLCanvasElement, cb: DepthSceneCallba
   camera.lowerRadiusLimit = 6
   camera.upperRadiusLimit = 40
   camera.minZ = 0.05
-  // alpha: 正面まわりだけに制限して、後ろから見ないようにする
-  camera.lowerAlphaLimit = Math.PI / 2 - 0.6
-  camera.upperAlphaLimit = Math.PI / 2 + 0.6
+  // alpha: 横方向は無制限 (360° 一周可) — スライドの裏側からも見られる
 
   // ---------- ライト ----------
   const hemi = new HemisphericLight('hemi', new Vector3(0, 1, 0.3), scene)
